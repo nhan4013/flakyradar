@@ -28,10 +28,24 @@ def test_detail(request, case_id: int):
     )
     score = FlakinessScore.objects.filter(case=case).first()
     quarantined = QuarantineEntry.objects.filter(case=case, active=True).exists()
+    latest_failure = (
+        TestResult.objects.filter(case=case, outcome__in=["failed", "error"])
+        .exclude(cluster=None)
+        .select_related("cluster__diagnosis")
+        .order_by("-run__created_at", "-id")
+        .first()
+    )
+    diagnosis = getattr(latest_failure.cluster, "diagnosis", None) if latest_failure else None
     return render(
         request,
         "core/test_detail.html",
-        {"case": case, "results": results, "score": score, "quarantined": quarantined},
+        {
+            "case": case,
+            "results": results,
+            "score": score,
+            "quarantined": quarantined,
+            "diagnosis": diagnosis,
+        },
     )
 
 

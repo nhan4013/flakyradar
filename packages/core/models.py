@@ -57,9 +57,44 @@ class TestResult(models.Model):
     duration = models.FloatField(default=0.0)
     message = models.TextField(blank=True)
     stack_trace = models.TextField(blank=True)
+    # ponytail: JSONField list[float] instead of pgvector VectorField — clustering runs
+    # in-process over a batch, no DB-side ANN search yet. Upgrade when Phase 2 RAG
+    # retrieval needs live nearest-neighbor queries.
+    embedding = models.JSONField(null=True, blank=True)
+    cluster = models.ForeignKey(
+        "FailureCluster", on_delete=models.SET_NULL, null=True, blank=True, related_name="members"
+    )
 
     class Meta:
         indexes = [models.Index(fields=["case", "run"])]
+
+
+class FailureCluster(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="failure_clusters")
+    representative = models.ForeignKey(
+        TestResult, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    centroid = models.JSONField()
+    size = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class Diagnosis(models.Model):
+    class Category(models.TextChoices):
+        RACE_CONDITION = "race_condition"
+        TEST_ORDER_DEPENDENCY = "test_order_dependency"
+        TIMING_FLAKINESS = "timing_flakiness"
+        NETWORK = "network"
+        RESOURCE_LEAK = "resource_leak"
+        UNKNOWN = "unknown"
+
+    cluster = models.OneToOneField(FailureCluster, on_delete=models.CASCADE, related_name="diagnosis")
+    category = models.CharField(max_length=30, choices=Category.choices)
+    confidence = models.FloatField(default=0.0)
+    explanation = models.TextField(blank=True)
+    suggested_fix = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class FlakinessScore(models.Model):

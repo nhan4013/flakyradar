@@ -1,6 +1,8 @@
 from django.contrib import admin
 
 from core.models import (
+    Diagnosis,
+    FailureCluster,
     FlakinessScore,
     Project,
     QuarantineEntry,
@@ -42,3 +44,15 @@ class FlakinessScoreAdmin(admin.ModelAdmin):
 class QuarantineEntryAdmin(admin.ModelAdmin):
     list_display = ("case", "active", "reason", "created_at")
     list_filter = ("active",)
+
+
+@admin.register(FailureCluster)
+class FailureClusterAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "representative", "size", "created_at")
+    list_filter = ("project",)
+
+
+@admin.register(Diagnosis)
+class DiagnosisAdmin(admin.ModelAdmin):
+    list_display = ("cluster", "category", "confidence", "created_at")
+    list_filter = ("category",)
