@@ -3,6 +3,7 @@ from django.contrib import admin
 from core.models import (
     Diagnosis,
     FailureCluster,
+    FixRecord,
     FlakinessScore,
     Project,
     QuarantineEntry,
@@ -56,3 +57,8 @@ class FailureClusterAdmin(admin.ModelAdmin):
 class DiagnosisAdmin(admin.ModelAdmin):
     list_display = ("cluster", "category", "confidence", "created_at")
     list_filter = ("category",)
+
+
+@admin.register(FixRecord)
+class FixRecordAdmin(admin.ModelAdmin):
+    list_display = ("cluster", "commit_sha", "created_at")

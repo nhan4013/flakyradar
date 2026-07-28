@@ -18,6 +18,18 @@
   {{ diagnosis.explanation }}
   {% if diagnosis.suggested_fix %}<br>Suggested fix: {{ diagnosis.suggested_fix }}{% endif %}
 </p>
+{% if diagnosis.rag_suggestion %}
+<p>
+  Similar past fix found: {{ diagnosis.rag_suggestion }}
+  {% if diagnosis.evidence %}
+  <ul>
+    {% for e in diagnosis.evidence %}
+    <li>commit {{ e.commit_sha|slice:":8" }} — {{ e.description }} (score {{ e.score|floatformat:3 }})</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</p>
+{% endif %}
 {% endif %}
 
 <form method="post" action="{% url 'toggle_quarantine' case.id %}">

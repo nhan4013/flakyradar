@@ -2,11 +2,12 @@
 
 import os
 
-from core import clustering, embeddings, llm, scoring
+from core import clustering, embeddings, llm, retrieval, scoring
 from core.junit import parse_junit_xml
 from core.models import (
     Diagnosis,
     FailureCluster,
+    FixRecord,
     FlakinessScore,
     Project,
     TestCase,
@@ -117,11 +118,56 @@ def analyze_project(project_id: int, window: int = 500) -> dict:
         result = llm.classify_root_cause(
             representative.case.test_id, representative.stack_trace, representative.message
         )
+
+        similar = find_similar_fixes(
+            project, f"{representative.message}\n{representative.stack_trace}", centroid
+        )
+        rag = llm.suggest_fix(
+            representative.case.test_id,
+            representative.stack_trace,
+            representative.message,
+            [{"commit_sha": fr.commit_sha, "description": fr.description} for fr, _ in similar],
+        )
+
         Diagnosis.objects.create(
             cluster=cluster,
             category=result["category"],
             confidence=result["confidence"],
             explanation=result["explanation"],
             suggested_fix=result["suggested_fix"],
+            rag_suggestion=rag["suggestion"],
+            evidence=[
+                {
+                    "fix_record_id": fr.id,
+                    "commit_sha": fr.commit_sha,
+                    "description": fr.description,
+                    "score": score,
+                }
+                for fr, score in similar
+            ],
         )
     return {"clusters": len(groups)}
+
+
+def find_similar_fixes(
+    project: Project, query_text: str, query_embedding: list[float], k: int = 3
+) -> list[tuple[FixRecord, float]]:
+    """RAG retrieval: find past-resolved clusters whose fix might apply here."""
+    resolved = FixRecord.objects.filter(cluster__project=project).select_related(
+        "cluster", "cluster__representative"
+    )
+    candidates = []
+    fix_by_id = {}
+    for fr in resolved:
+        if fr.cluster.representative is None:
+            continue
+        candidates.append(
+            retrieval.Candidate(
+                id=fr.id,
+                text=f"{fr.description}\n{fr.cluster.representative.message}",
+                embedding=fr.cluster.centroid,
+            )
+        )
+        fix_by_id[fr.id] = fr
+    ranked = retrieval.hybrid_rank(query_text, query_embedding, candidates, k=k)
+    return [(fix_by_id[c.id], score) for c, score in ranked]

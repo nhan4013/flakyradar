@@ -12,3 +12,6 @@ jobs:
       - run: pip install -r requirements.txt
       - run: ruff check .
       - run: DJANGO_TEST_SQLITE=1 pytest -q
+      - run: PYTHONPATH=packages python scripts/run_eval.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
