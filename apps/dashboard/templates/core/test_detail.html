@@ -32,6 +32,31 @@
 {% endif %}
 {% endif %}
 
+{% if cluster %}
+<form method="post" action="{% url 'trigger_diagnosis' cluster.id %}">
+  {% csrf_token %}
+  <button type="submit">Diagnose (sandboxed agent)</button>
+</form>
+
+{% if agent_runs %}
+<h3>Agent runs</h3>
+<table>
+  <thead><tr><th>Status</th><th>Reproduced</th><th>Category</th><th>Confidence</th><th>Started</th></tr></thead>
+  <tbody>
+    {% for r in agent_runs %}
+    <tr>
+      <td><a href="{% url 'agent_run_detail' r.id %}">{{ r.get_status_display }}</a></td>
+      <td>{{ r.reproduced|yesno:"yes,no" }}</td>
+      <td>{{ r.category }}</td>
+      <td>{{ r.confidence|floatformat:2 }}</td>
+      <td>{{ r.started_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+
 <form method="post" action="{% url 'toggle_quarantine' case.id %}">
   {% csrf_token %}
   {% if quarantined %}

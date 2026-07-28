@@ -2,7 +2,14 @@ from django.db.models import Exists, OuterRef
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from core.models import FlakinessScore, QuarantineEntry, TestCase, TestResult
+from core.models import (
+    AgentRun,
+    FailureCluster,
+    FlakinessScore,
+    QuarantineEntry,
+    TestCase,
+    TestResult,
+)
 
 
 def index(request):
@@ -36,6 +43,8 @@ def test_detail(request, case_id: int):
         .first()
     )
     diagnosis = getattr(latest_failure.cluster, "diagnosis", None) if latest_failure else None
+    cluster = latest_failure.cluster if latest_failure else None
+    agent_runs = AgentRun.objects.filter(cluster=cluster).order_by("-started_at") if cluster else []
     return render(
         request,
         "core/test_detail.html",
@@ -45,6 +54,8 @@ def test_detail(request, case_id: int):
             "score": score,
             "quarantined": quarantined,
             "diagnosis": diagnosis,
+            "cluster": cluster,
+            "agent_runs": agent_runs,
         },
     )
 
@@ -58,3 +69,20 @@ def toggle_quarantine(request, case_id: int):
     else:
         QuarantineEntry.objects.create(case=case, reason=request.POST.get("reason", ""))
     return redirect("test_detail", case_id=case.pk)
+
+
+@require_POST
+def trigger_diagnosis(request, cluster_id: int):
+    from worker.tasks import diagnose
+
+    cluster = get_object_or_404(FailureCluster, pk=cluster_id)
+    diagnose.delay(cluster_id)
+    return redirect("test_detail", case_id=cluster.representative.case_id)
+
+
+def agent_run_detail(request, run_id: int):
+    run = get_object_or_404(
+        AgentRun.objects.select_related("cluster", "cluster__representative__case"), pk=run_id
+    )
+    steps = run.steps.all()
+    return render(request, "core/agent_run_detail.html", {"run": run, "steps": steps})

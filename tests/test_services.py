@@ -131,3 +131,72 @@ def test_analyze_project_finds_similar_past_fix(monkeypatch):
     diagnosis = Diagnosis.objects.get(cluster=new_cluster)
     assert diagnosis.rag_suggestion == "same as commit abc123"
     assert diagnosis.evidence[0]["commit_sha"] == "abc123"
+
+
+@pytest.mark.django_db
+def test_diagnose_cluster_fails_without_api_key(monkeypatch):
+    from core.models import AgentRun, FailureCluster
+    from core.services import diagnose_cluster
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    project = Project.objects.create(name="Demo", slug="demo")
+    cluster = FailureCluster.objects.create(project=project, centroid=[1.0, 0.0], size=1)
+
+    run = diagnose_cluster(cluster.id)
+    assert run.status == AgentRun.Status.FAILED
+    assert "ANTHROPIC_API_KEY" in run.error
+
+
+@pytest.mark.django_db
+def test_diagnose_cluster_fails_without_repo_url(monkeypatch):
+    from core.models import AgentRun, FailureCluster
+    from core.services import diagnose_cluster
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    project = Project.objects.create(name="Demo", slug="demo")
+    cluster = FailureCluster.objects.create(project=project, centroid=[1.0, 0.0], size=1)
+
+    run = diagnose_cluster(cluster.id)
+    assert run.status == AgentRun.Status.FAILED
+    assert "repo_url" in run.error
+
+
+@pytest.mark.django_db
+def test_diagnose_cluster_orchestrates_agent_run(monkeypatch):
+    from core.models import AgentRun, AgentStep, FailureCluster, TestCase
+    from core.services import diagnose_cluster
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr("core.services.git_clone.checkout", lambda *a, **k: None)
+    monkeypatch.setattr("core.services.sandbox.build_image", lambda *a, **k: None)
+    monkeypatch.setattr("core.services.sandbox.remove_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "core.services.agent.run_diagnostic_agent",
+        lambda *a, **k: (
+            {
+                "category": "race_condition",
+                "confidence": 0.7,
+                "explanation": "reruns showed a 2/5 failure rate",
+                "reproduced": True,
+                "evidence": ["2/5 reruns failed"],
+            },
+            [{"step": 0, "tool": "rerun_test", "input": {"n": 5}, "output": "2/5 failed"}],
+        ),
+    )
+
+    project = Project.objects.create(name="Demo", slug="demo", repo_url="https://example.com/repo.git")
+    case = TestCase.objects.create(project=project, test_id="t::x")
+    run_obj = TestRun.objects.create(project=project, commit_sha="sha1", branch="main")
+    representative = TestResult.objects.create(
+        run=run_obj, case=case, outcome="failed", message="boom", stack_trace="trace"
+    )
+    cluster = FailureCluster.objects.create(
+        project=project, representative=representative, centroid=[1.0, 0.0], size=1
+    )
+
+    run = diagnose_cluster(cluster.id)
+
+    assert run.status == AgentRun.Status.COMPLETED
+    assert run.reproduced is True
+    assert run.category == "race_condition"
+    assert AgentStep.objects.filter(run=run).count() == 1

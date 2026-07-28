@@ -71,5 +71,28 @@ services:
       redis:
         condition: service_healthy
 
+  # Phase 3 diagnostic agent. Opt-in only (docker compose --profile agent up) —
+  # this service mounts the host docker socket to run the sandbox, which is a much
+  # stronger trust boundary than the ingest worker. Never enable this on a host you
+  # don't control; see README "Diagnostic agent" section.
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    profiles: ["agent"]
+    command: celery -A worker.celery_app worker --loglevel=info -Q diagnose
+    working_dir: /app/apps
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:

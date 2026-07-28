@@ -1,10 +1,16 @@
 """Ingest + scoring pipeline. Called from Celery tasks; DB logic lives here so tests hit it directly."""
 
 import os
+import tempfile
+from pathlib import Path
 
-from core import clustering, embeddings, llm, retrieval, scoring
+from django.utils import timezone
+
+from core import agent, clustering, embeddings, git_clone, llm, retrieval, sandbox, scoring
 from core.junit import parse_junit_xml
 from core.models import (
+    AgentRun,
+    AgentStep,
     Diagnosis,
     FailureCluster,
     FixRecord,
@@ -171,3 +177,70 @@ def find_similar_fixes(
         fix_by_id[fr.id] = fr
     ranked = retrieval.hybrid_rank(query_text, query_embedding, candidates, k=k)
     return [(fix_by_id[c.id], score) for c, score in ranked]
+
+
+def diagnose_cluster(cluster_id: int) -> AgentRun:
+    """Runs the sandboxed diagnostic agent (Phase 3) against a real checkout of the
+    cluster's representative test, at the commit it failed on."""
+    cluster = FailureCluster.objects.select_related(
+        "project", "representative", "representative__case", "representative__run"
+    ).get(pk=cluster_id)
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return AgentRun.objects.create(
+            cluster=cluster, status=AgentRun.Status.FAILED, error="ANTHROPIC_API_KEY not set"
+        )
+    if not cluster.project.repo_url:
+        return AgentRun.objects.create(
+            cluster=cluster,
+            status=AgentRun.Status.FAILED,
+            error="project has no repo_url configured",
+        )
+    if cluster.representative is None:
+        return AgentRun.objects.create(
+            cluster=cluster, status=AgentRun.Status.FAILED, error="cluster has no representative test"
+        )
+
+    run = AgentRun.objects.create(cluster=cluster)
+    representative = cluster.representative
+    image = f"flakyradar-sandbox-{run.id}"
+
+    with tempfile.TemporaryDirectory(prefix="flakyradar-diag-") as tmp:
+        repo_dir = Path(tmp) / "repo"
+        workdir = Path(tmp) / "out"
+        workdir.mkdir()
+        try:
+            git_clone.checkout(cluster.project.repo_url, representative.run.commit_sha, repo_dir)
+            sandbox.build_image(repo_dir, image)
+            try:
+                report, steps = agent.run_diagnostic_agent(
+                    image,
+                    workdir,
+                    repo_dir,
+                    representative.case.test_id,
+                    representative.stack_trace,
+                    representative.message,
+                )
+                for s in steps:
+                    AgentStep.objects.create(
+                        run=run,
+                        index=s["step"],
+                        tool=s["tool"],
+                        tool_input=s["input"],
+                        tool_output=str(s["output"])[:4000],
+                    )
+                run.status = AgentRun.Status.COMPLETED
+                run.reproduced = report.get("reproduced", False)
+                run.category = report.get("category", "unknown")
+                run.confidence = report.get("confidence", 0.0)
+                run.explanation = report.get("explanation", "")
+                run.evidence = report.get("evidence", [])
+            finally:
+                sandbox.remove_image(image)
+        except Exception as exc:  # noqa: BLE001 — git/docker/agent failures land on the run, not a 500
+            run.status = AgentRun.Status.FAILED
+            run.error = str(exc)
+
+    run.finished_at = timezone.now()
+    run.save()
+    return run
