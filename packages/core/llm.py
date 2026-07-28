@@ -61,3 +61,44 @@ def classify_root_cause(test_id: str, stack_trace: str, message: str) -> dict:
         }
     text = next(b.text for b in response.content if b.type == "text")
     return json.loads(text)
+
+
+SUGGEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "suggestion": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["suggestion", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def suggest_fix(
+    test_id: str, stack_trace: str, message: str, similar_fixes: list[dict]
+) -> dict:
+    """Suggest a fix grounded in past fixes for similar flaky tests (RAG)."""
+    if not similar_fixes:
+        return {"suggestion": "", "confidence": 0.0}
+    evidence_text = "\n".join(
+        f"- Similar failure fixed via commit {f['commit_sha']}: {f['description']}"
+        for f in similar_fixes
+    )
+    prompt = (
+        f"Test: {test_id}\n"
+        f"Failure message: {message}\n"
+        f"Stack trace:\n{stack_trace}\n\n"
+        f"Past similar flaky-test fixes on this project:\n{evidence_text}\n\n"
+        "Suggest a concrete fix for this test, referencing the most relevant past fix "
+        "by commit if it applies."
+    )
+    response = _get_client().messages.create(
+        model=MODEL,
+        max_tokens=512,
+        output_config={"format": {"type": "json_schema", "schema": SUGGEST_SCHEMA}},
+        messages=[{"role": "user", "content": prompt}],
+    )
+    if response.stop_reason == "refusal":
+        return {"suggestion": "", "confidence": 0.0}
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)

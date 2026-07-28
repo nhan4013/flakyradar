@@ -94,6 +94,22 @@ class Diagnosis(models.Model):
     confidence = models.FloatField(default=0.0)
     explanation = models.TextField(blank=True)
     suggested_fix = models.TextField(blank=True)
+    # RAG: LLM suggestion grounded in similar past fixes (see FixRecord), plus what was retrieved
+    rag_suggestion = models.TextField(blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class FixRecord(models.Model):
+    """Marks a FailureCluster as resolved and how — the knowledge base for RAG retrieval.
+
+    ponytail: created manually via Django Admin for now; auto-detecting the fixing
+    commit via the GitHub API is the upgrade path once there's a real repo to mine.
+    """
+
+    cluster = models.OneToOneField(FailureCluster, on_delete=models.CASCADE, related_name="fix")
+    commit_sha = models.CharField(max_length=64)
+    description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
 
