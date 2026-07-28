@@ -1,6 +1,6 @@
 # flakyradar-upload
 
-Cắm FlakyRadar vào CI trong 5 phút. Ví dụ workflow của repo bạn:
+Wire FlakyRadar into your CI in 5 minutes. Example workflow for your repo:
 
 ```yaml
 name: test
@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: pytest --junitxml=junit.xml
-        continue-on-error: true  # đẩy report kể cả khi test fail
+        continue-on-error: true  # upload the report even when tests fail
       - uses: your-org/flakyradar/examples/github-action/flakyradar-upload@main
         with:
           server-url: ${{ secrets.FLAKYRADAR_URL }}
@@ -23,4 +23,5 @@ jobs:
           report-path: junit.xml
 ```
 
-`api-key` lấy từ Django Admin sau khi tạo `Project` (mỗi project có 1 API key).
+Get the `api-key` from Django Admin after creating a `Project` (each project has
+its own API key).

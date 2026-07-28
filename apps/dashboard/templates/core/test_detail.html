@@ -6,7 +6,7 @@
 <p>
   Flip probability: <strong>{{ score.probability|floatformat:3 }}</strong>
   (95% CI [{{ score.ci_low|floatformat:3 }}, {{ score.ci_high|floatformat:3 }}])
-  — {{ score.flip_commits }}/{{ score.observed_commits }} commit lật kèo,
+  — {{ score.flip_commits }}/{{ score.observed_commits }} commits flipped,
   impact {{ score.impact|floatformat:1 }}
 </p>
 {% endif %}
@@ -14,16 +14,16 @@
 <form method="post" action="{% url 'toggle_quarantine' case.id %}">
   {% csrf_token %}
   {% if quarantined %}
-    <button type="submit">Bỏ quarantine</button>
+    <button type="submit">Remove quarantine</button>
   {% else %}
-    <input type="text" name="reason" placeholder="Lý do quarantine">
+    <input type="text" name="reason" placeholder="Quarantine reason">
     <button type="submit">Quarantine</button>
   {% endif %}
 </form>
 
-<h3>Lịch sử run gần nhất</h3>
+<h3>Recent run history</h3>
 <table>
-  <thead><tr><th>Commit</th><th>Branch</th><th>Outcome</th><th>Duration</th><th>Thời điểm</th></tr></thead>
+  <thead><tr><th>Commit</th><th>Branch</th><th>Outcome</th><th>Duration</th><th>Timestamp</th></tr></thead>
   <tbody>
     {% for r in results %}
     <tr>

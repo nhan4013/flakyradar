@@ -1,5 +1,5 @@
 # Terraform skeleton (Phase 0)
 
-Chưa `terraform apply`. S3 bucket (raw report), SQS queue (production job broker thay Redis),
-ECS cluster placeholder. Mở rộng ở Phase 4 khi deploy demo public: thêm ECS task definitions,
-RDS/pgvector, ALB, CloudWatch alarms.
+Not applied yet. S3 bucket (raw reports), SQS queue (production job broker in place of
+Redis), ECS cluster placeholder. Expand in Phase 4 when deploying the public demo: add
+ECS task definitions, RDS/pgvector, ALB, CloudWatch alarms.
