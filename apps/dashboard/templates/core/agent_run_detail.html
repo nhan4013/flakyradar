@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}
+{% block content %}
+<p class="sub">
+  Agent run for {{ run.cluster.representative.case.test_id }} — {{ run.get_status_display }}
+</p>
+
+<p>
+  Reproduced: <strong>{{ run.reproduced|yesno:"yes,no" }}</strong><br>
+  Category: {{ run.category }} (confidence {{ run.confidence|floatformat:2 }})<br>
+  {{ run.explanation }}
+  {% if run.error %}<br><strong>Error:</strong> {{ run.error }}{% endif %}
+</p>
+
+{% if run.evidence %}
+<h3>Evidence</h3>
+<ul>
+  {% for e in run.evidence %}
+  <li>{{ e }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h3>Tool call audit log</h3>
+<table>
+  <thead><tr><th>#</th><th>Tool</th><th>Input</th><th>Output</th></tr></thead>
+  <tbody>
+    {% for s in steps %}
+    <tr>
+      <td>{{ s.index }}</td>
+      <td>{{ s.tool }}</td>
+      <td><code>{{ s.tool_input }}</code></td>
+      <td>{{ s.tool_output }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="4">No tool calls recorded.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

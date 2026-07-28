@@ -64,8 +64,44 @@ PYTHONPATH=packages .venv/bin/python scripts/run_eval.py
 Both run in CI (`.github/workflows/ci.yml`); the classifier step no-ops
 without the `ANTHROPIC_API_KEY` secret configured.
 
+## Diagnostic agent (Phase 3)
+
+Click "Diagnose (sandboxed agent)" on a test's detail page to have a ReAct
+agent (Claude, manual tool-use loop) investigate a flaky cluster against a
+real, sandboxed checkout of the test's repo at the commit it failed on:
+
+- **Tools**: `rerun_test(n)`, `run_with_random_order()`, `run_in_isolation()`,
+  `read_test_source(path)`, `check_shared_fixtures()` — see `packages/core/agent_tools.py`
+- **Sandbox** (`packages/core/sandbox.py`): a `docker build` installs the
+  repo's deps (network on, since installing deps needs it); every actual test
+  run is `docker run --network none` with CPU/RAM/pids/time limits
+- **Budget**: hard step cap (`AGENT_MAX_STEPS`, default 8) and token cap
+  (`AGENT_MAX_TOKENS`, default 50000) — the agent gets a "budget exhausted"
+  report instead of running forever
+- **Audit log**: every tool call + input + output is recorded as an
+  `AgentStep`, viewable on the agent run detail page
+
+**Requires `Project.repo_url` set** (Django Admin) so the agent can clone the
+repo, plus `ANTHROPIC_API_KEY`.
+
+### Running it
+
+The diagnostic agent needs its own Celery worker with the **host docker
+socket mounted**, so it can build sandbox images and run containers. That's a
+materially stronger trust boundary than the ingest worker — mounting
+`docker.sock` effectively grants that container root-equivalent host access.
+It's therefore an **opt-in, separate service**, never started by plain
+`docker compose up`:
+
+```bash
+docker compose --profile agent up
+```
+
+Don't enable this on a host you don't control.
+
 ## Status
 
-Phase 0 + Phase 1 + Phase 2 done: ingest, Wilson-score flakiness scoring,
+Phase 0 through Phase 3 done: ingest, Wilson-score flakiness scoring,
 dashboard, embedding + clustering + LLM root-cause diagnosis, RAG fix
-suggestions, eval harness. Phase 3 (sandboxed diagnostic agent) is next.
+suggestions, eval harness, sandboxed ReAct diagnostic agent. Phase 4
+(optional/long-term: distillation, more frameworks, public demo) is next.

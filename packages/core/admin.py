@@ -1,6 +1,8 @@
 from django.contrib import admin
 
 from core.models import (
+    AgentRun,
+    AgentStep,
     Diagnosis,
     FailureCluster,
     FixRecord,
@@ -62,3 +64,16 @@ class DiagnosisAdmin(admin.ModelAdmin):
 @admin.register(FixRecord)
 class FixRecordAdmin(admin.ModelAdmin):
     list_display = ("cluster", "commit_sha", "created_at")
+
+
+class AgentStepInline(admin.TabularInline):
+    model = AgentStep
+    extra = 0
+    readonly_fields = ("index", "tool", "tool_input", "tool_output", "created_at")
+
+
+@admin.register(AgentRun)
+class AgentRunAdmin(admin.ModelAdmin):
+    list_display = ("cluster", "status", "reproduced", "category", "confidence", "started_at")
+    list_filter = ("status", "category")
+    inlines = [AgentStepInline]

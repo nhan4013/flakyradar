@@ -113,6 +113,41 @@ class FixRecord(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class AgentRun(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "running"
+        COMPLETED = "completed"
+        FAILED = "failed"
+
+    cluster = models.ForeignKey(FailureCluster, on_delete=models.CASCADE, related_name="agent_runs")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
+    reproduced = models.BooleanField(default=False)
+    category = models.CharField(max_length=30, blank=True)
+    confidence = models.FloatField(default=0.0)
+    explanation = models.TextField(blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+
+class AgentStep(models.Model):
+    """One tool call in a diagnostic agent run — the audit log plan.md requires."""
+
+    run = models.ForeignKey(AgentRun, on_delete=models.CASCADE, related_name="steps")
+    index = models.IntegerField()
+    tool = models.CharField(max_length=100)
+    tool_input = models.JSONField(default=dict)
+    tool_output = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["index"]
+
+
 class FlakinessScore(models.Model):
     case = models.OneToOneField(TestCase, on_delete=models.CASCADE, related_name="score")
     # point estimate of flip probability + Wilson interval

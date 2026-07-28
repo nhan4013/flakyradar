@@ -1,4 +1,4 @@
-from core.services import analyze_project, ingest_report
+from core.services import analyze_project, diagnose_cluster, ingest_report
 
 from worker.celery_app import app
 
@@ -14,3 +14,11 @@ def process_report(project_id: int, commit_sha: str, branch: str, ci_run_id: str
     )
     analyze_project(project_id)
     return {"run_id": run.id}
+
+
+@app.task(name="worker.diagnose")
+def diagnose(cluster_id: int):
+    """Runs the sandboxed diagnostic agent. Routed to the "diagnose" queue — only the
+    opt-in `agent` service (docker.sock mounted) consumes it, never the ingest worker."""
+    run = diagnose_cluster(cluster_id)
+    return {"agent_run_id": run.id, "status": run.status}
