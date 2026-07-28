@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}
+{% block content %}
+<p class="sub">{{ case.test_id }} — {{ case.project.slug }}</p>
+
+{% if score %}
+<p>
+  Flip probability: <strong>{{ score.probability|floatformat:3 }}</strong>
+  (95% CI [{{ score.ci_low|floatformat:3 }}, {{ score.ci_high|floatformat:3 }}])
+  — {{ score.flip_commits }}/{{ score.observed_commits }} commit lật kèo,
+  impact {{ score.impact|floatformat:1 }}
+</p>
+{% endif %}
+
+<form method="post" action="{% url 'toggle_quarantine' case.id %}">
+  {% csrf_token %}
+  {% if quarantined %}
+    <button type="submit">Bỏ quarantine</button>
+  {% else %}
+    <input type="text" name="reason" placeholder="Lý do quarantine">
+    <button type="submit">Quarantine</button>
+  {% endif %}
+</form>
+
+<h3>Lịch sử run gần nhất</h3>
+<table>
+  <thead><tr><th>Commit</th><th>Branch</th><th>Outcome</th><th>Duration</th><th>Thời điểm</th></tr></thead>
+  <tbody>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.run.commit_sha|slice:":8" }}</td>
+      <td>{{ r.run.branch }}</td>
+      <td><span class="pill {{ r.outcome }}">{{ r.outcome }}</span></td>
+      <td>{{ r.duration|floatformat:2 }}s</td>
+      <td>{{ r.run.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

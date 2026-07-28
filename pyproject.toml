@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["packages/core/migrations", ".venv"]
+
+[tool.ruff.lint]
+# RUF012: Django Meta.indexes/ordering/unique_together are the idiomatic pattern, not a bug
+# B008: FastAPI's Depends() in argument defaults is the required dependency-injection pattern
+ignore = ["RUF012", "B008"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+pythonpath = ["packages", "apps", "apps/dashboard"]
+testpaths = ["tests"]

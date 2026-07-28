@@ -1,0 +1,23 @@
+name: "FlakyRadar Upload"
+description: "Upload pytest JUnit XML results to a self-hosted FlakyRadar instance"
+inputs:
+  server-url:
+    description: "Base URL of your FlakyRadar ingest API"
+    required: true
+  api-key:
+    description: "Project API key (store as a repo secret)"
+    required: true
+  report-path:
+    description: "Path to the JUnit XML report"
+    required: true
+    default: "junit.xml"
+runs:
+  using: "composite"
+  steps:
+    - name: Upload report to FlakyRadar
+      shell: bash
+      run: |
+        curl -sf -X POST \
+          "${{ inputs.server-url }}/v1/reports?commit_sha=${{ github.sha }}&branch=${{ github.ref_name }}&ci_run_id=${{ github.run_id }}" \
+          -H "X-API-Key: ${{ inputs.api-key }}" \
+          -F "file=@${{ inputs.report-path }}"
