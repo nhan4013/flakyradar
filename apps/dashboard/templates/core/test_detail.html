@@ -11,6 +11,15 @@
 </p>
 {% endif %}
 
+{% if diagnosis %}
+<p>
+  Diagnosis: <strong>{{ diagnosis.get_category_display }}</strong>
+  (confidence {{ diagnosis.confidence|floatformat:2 }})<br>
+  {{ diagnosis.explanation }}
+  {% if diagnosis.suggested_fix %}<br>Suggested fix: {{ diagnosis.suggested_fix }}{% endif %}
+</p>
+{% endif %}
+
 <form method="post" action="{% url 'toggle_quarantine' case.id %}">
   {% csrf_token %}
   {% if quarantined %}

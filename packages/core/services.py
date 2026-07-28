@@ -1,8 +1,18 @@
 """Ingest + scoring pipeline. Called from Celery tasks; DB logic lives here so tests hit it directly."""
 
-from core import scoring
+import os
+
+from core import clustering, embeddings, llm, scoring
 from core.junit import parse_junit_xml
-from core.models import FlakinessScore, Project, TestCase, TestResult, TestRun
+from core.models import (
+    Diagnosis,
+    FailureCluster,
+    FlakinessScore,
+    Project,
+    TestCase,
+    TestResult,
+    TestRun,
+)
 
 
 def ingest_report(
@@ -57,3 +67,61 @@ def recompute_case_score(case: TestCase) -> FlakinessScore:
         },
     )
     return score
+
+
+def analyze_project(project_id: int, window: int = 500) -> dict:
+    """Embed recent failures, cluster duplicates, and classify root cause per cluster.
+
+    No-ops when ANTHROPIC_API_KEY / VOYAGE_API_KEY aren't set, so ingest+scoring
+    keeps working without AI keys configured.
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY") or not os.environ.get("VOYAGE_API_KEY"):
+        return {"skipped": "missing ANTHROPIC_API_KEY or VOYAGE_API_KEY"}
+
+    project = Project.objects.get(pk=project_id)
+    failing = list(
+        TestResult.objects.filter(run__project=project, outcome__in=["failed", "error"])
+        .exclude(stack_trace="")
+        .select_related("case", "run")
+        .order_by("-run__created_at")[:window]
+    )
+    if not failing:
+        return {"clusters": 0}
+
+    to_embed = [r for r in failing if not r.embedding]
+    if to_embed:
+        texts = [f"{r.message}\n{r.stack_trace}" for r in to_embed]
+        vectors = embeddings.embed_texts(texts)
+        for r, vec in zip(to_embed, vectors, strict=True):
+            r.embedding = vec
+        TestResult.objects.bulk_update(to_embed, ["embedding"])
+
+    embedded = [r for r in failing if r.embedding]
+    labels = clustering.cluster_embeddings([r.embedding for r in embedded])
+
+    groups: dict[int, list[TestResult]] = {}
+    for r, label in zip(embedded, labels, strict=True):
+        if label != -1:
+            groups.setdefault(label, []).append(r)
+
+    # ponytail: each run creates fresh clusters rather than merging with prior ones —
+    # add centroid-similarity matching across runs if duplicate clusters pile up
+    for members in groups.values():
+        vectors = [m.embedding for m in members]
+        centroid = [sum(vals) / len(vals) for vals in zip(*vectors, strict=True)]
+        representative = members[0]
+        cluster = FailureCluster.objects.create(
+            project=project, representative=representative, centroid=centroid, size=len(members)
+        )
+        TestResult.objects.filter(pk__in=[m.pk for m in members]).update(cluster=cluster)
+        result = llm.classify_root_cause(
+            representative.case.test_id, representative.stack_trace, representative.message
+        )
+        Diagnosis.objects.create(
+            cluster=cluster,
+            category=result["category"],
+            confidence=result["confidence"],
+            explanation=result["explanation"],
+            suggested_fix=result["suggested_fix"],
+        )
+    return {"clusters": len(groups)}
