@@ -144,7 +144,7 @@ def test_diagnose_cluster_fails_without_api_key(monkeypatch):
 
     run = diagnose_cluster(cluster.id)
     assert run.status == AgentRun.Status.FAILED
-    assert "ANTHROPIC_API_KEY" in run.error
+    assert "API key" in run.error
 
 
 @pytest.mark.django_db

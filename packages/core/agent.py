@@ -1,10 +1,16 @@
 """Sandboxed ReAct diagnostic agent (Phase 3).
 
-Manual tool-use loop (not the SDK tool runner) so step budget, token budget,
+Manual tool-use loop (not an SDK tool runner) so step budget, token budget,
 and per-call audit logging are fully explicit and deterministic — see
 plan.md Phase 3: "giới hạn số step + chi phí token mỗi lần chẩn đoán".
+
+Default provider is Anthropic (Claude). Set LLM_PROVIDER=openai-compatible to
+run the same loop against any OpenAI-compatible chat completions endpoint
+(OpenAI, Azure OpenAI, OpenRouter, Groq, self-hosted Ollama/vLLM, ...) via
+LLM_BASE_URL + LLM_API_KEY + LLM_MODEL — same env vars as packages/core/llm.py.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -12,7 +18,9 @@ import anthropic
 
 from core import agent_tools, llm
 
+PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
+OPENAI_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 MAX_TOKENS_BUDGET = int(os.environ.get("AGENT_MAX_TOKENS", "50000"))
 
@@ -80,6 +88,7 @@ TOOLS = [
 ]
 
 _client: anthropic.Anthropic | None = None
+_openai_client = None
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -87,6 +96,32 @@ def _get_client() -> anthropic.Anthropic:
     if _client is None:
         _client = anthropic.Anthropic()
     return _client
+
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        import openai
+
+        _openai_client = openai.OpenAI(
+            base_url=os.environ.get("LLM_BASE_URL") or None,
+            api_key=os.environ.get("LLM_API_KEY"),
+        )
+    return _openai_client
+
+
+def _to_openai_tools(tools: list[dict]) -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in tools
+    ]
 
 
 def _budget_exceeded_report(reason: str) -> dict:
@@ -108,6 +143,14 @@ def run_diagnostic_agent(
     message: str,
 ) -> tuple[dict, list[dict]]:
     """Runs the ReAct loop. Returns (report, steps) — steps is the full audit log."""
+    if PROVIDER == "openai-compatible":
+        return _run_openai_loop(image, workdir, repo_dir, test_id, stack_trace, message)
+    return _run_anthropic_loop(image, workdir, repo_dir, test_id, stack_trace, message)
+
+
+def _run_anthropic_loop(
+    image: str, workdir: Path, repo_dir: Path, test_id: str, stack_trace: str, message: str
+) -> tuple[dict, list[dict]]:
     messages = [
         {
             "role": "user",
@@ -148,6 +191,64 @@ def run_diagnostic_agent(
             steps.append({"step": step_index, "tool": call.name, "input": call.input, "output": output})
             tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": output})
         messages.append({"role": "user", "content": tool_results})
+
+        if tokens_spent >= MAX_TOKENS_BUDGET:
+            return _budget_exceeded_report(
+                f"Stopped: token budget ({MAX_TOKENS_BUDGET}) exhausted after {step_index + 1} steps."
+            ), steps
+
+    return _budget_exceeded_report(
+        f"Agent did not conclude within the {MAX_STEPS}-step budget."
+    ), steps
+
+
+def _run_openai_loop(
+    image: str, workdir: Path, repo_dir: Path, test_id: str, stack_trace: str, message: str
+) -> tuple[dict, list[dict]]:
+    openai_tools = _to_openai_tools(TOOLS)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Test: {test_id}\nFailure message: {message}\nStack trace:\n{stack_trace}\n\n"
+                "Investigate and diagnose why this test is flaky."
+            ),
+        },
+    ]
+    steps: list[dict] = []
+    client = _get_openai_client()
+    tokens_spent = 0
+
+    for step_index in range(MAX_STEPS):
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL, messages=messages, tools=openai_tools
+        )
+        usage = response.usage
+        if usage is not None:
+            tokens_spent += (usage.prompt_tokens or 0) + (usage.completion_tokens or 0)
+
+        choice = response.choices[0].message
+        messages.append(choice.model_dump(exclude_none=True))
+
+        tool_calls = choice.tool_calls or []
+        if not tool_calls:
+            break
+
+        for call in tool_calls:
+            name = call.function.name
+            try:
+                tool_input = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                tool_input = {}
+
+            if name == "report_diagnosis":
+                steps.append({"step": step_index, "tool": name, "input": tool_input, "output": "finished"})
+                return tool_input, steps
+
+            output = _execute_tool(name, tool_input, image, workdir, repo_dir, test_id)
+            steps.append({"step": step_index, "tool": name, "input": tool_input, "output": output})
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": output})
 
         if tokens_spent >= MAX_TOKENS_BUDGET:
             return _budget_exceeded_report(

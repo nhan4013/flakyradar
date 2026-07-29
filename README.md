@@ -26,8 +26,10 @@ something you run yourself, not a SaaS you have to trust with your CI data.
 - **Multi-framework ingestion** — pytest, JUnit (Java/Maven Surefire), Jest,
   and Go test, via one ingest API.
 - **AI root-cause diagnosis** — embeds failing stack traces, clusters
-  duplicate failures (HDBSCAN), and asks Claude to classify the root cause
+  duplicate failures (HDBSCAN), and asks an LLM to classify the root cause
   (race condition, test-order dependency, timing, network, resource leak).
+  Defaults to Claude, but works with any OpenAI-compatible provider/model —
+  bring your own API key.
 - **RAG fix suggestions** — retrieves similar past fixes (hybrid BM25 +
   vector search) and asks Claude for a suggestion grounded in what actually
   fixed them before.
@@ -81,9 +83,25 @@ packages/core    models, scoring, report parsers, embeddings, clustering,
 
 Set `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` in `.env` to enable it. After
 each ingest, failing tests are embedded (Voyage AI), clustered by similarity
-(HDBSCAN), and each cluster gets an LLM root-cause classification (Claude,
-structured outputs) shown on the test detail page. Without the keys,
-ingestion and scoring still work — the AI step is skipped.
+(HDBSCAN), and each cluster gets an LLM root-cause classification shown on
+the test detail page. Without the keys, ingestion and scoring still work —
+the AI step is skipped.
+
+### Bring your own provider
+
+The LLM and embedding provider are independently configurable — not locked
+to Claude or Voyage:
+
+| | Default | Alternative |
+|---|---|---|
+| LLM (classification, RAG suggestions, diagnostic agent) | Anthropic (`ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`) | `LLM_PROVIDER=openai-compatible` + `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` |
+| Embeddings | Voyage AI (`VOYAGE_API_KEY`, `VOYAGE_MODEL`) | `EMBEDDING_PROVIDER=openai-compatible` + `EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY` + `EMBEDDING_MODEL` |
+
+`openai-compatible` works with anything that speaks the OpenAI chat/embeddings
+API shape — OpenAI itself, Azure OpenAI, OpenRouter (which proxies Claude,
+Gemini, Llama, etc. behind one key), Groq, Together, or a self-hosted
+Ollama/vLLM endpoint. Point `LLM_BASE_URL` at it and use whatever model name
+that provider expects.
 
 Mark a cluster resolved via Django Admin by adding a `FixRecord` (commit SHA +
 description). Future clusters are matched against resolved ones with hybrid
@@ -108,7 +126,8 @@ real, sandboxed checkout of the test's repo at the commit it failed on:
 - **Audit log**: every tool call, input, and output is recorded and
   viewable on the agent run detail page
 
-Requires `Project.repo_url` set (Django Admin) and `ANTHROPIC_API_KEY`.
+Requires `Project.repo_url` set (Django Admin) and a configured LLM provider
+(same `LLM_PROVIDER`/`ANTHROPIC_API_KEY` or `LLM_BASE_URL`+`LLM_API_KEY` as above).
 
 The agent needs its own Celery worker with the **host docker socket
 mounted** so it can build sandbox images and run containers — a materially

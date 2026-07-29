@@ -1,6 +1,5 @@
 """Ingest + scoring pipeline. Called from Celery tasks; DB logic lives here so tests hit it directly."""
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -96,8 +95,8 @@ def analyze_project(project_id: int, window: int = 500) -> dict:
     No-ops when ANTHROPIC_API_KEY / VOYAGE_API_KEY aren't set, so ingest+scoring
     keeps working without AI keys configured.
     """
-    if not os.environ.get("ANTHROPIC_API_KEY") or not os.environ.get("VOYAGE_API_KEY"):
-        return {"skipped": "missing ANTHROPIC_API_KEY or VOYAGE_API_KEY"}
+    if not llm.has_credentials() or not embeddings.has_credentials():
+        return {"skipped": "missing LLM or embedding provider API key"}
 
     project = Project.objects.get(pk=project_id)
     failing = list(
@@ -200,9 +199,9 @@ def diagnose_cluster(cluster_id: int) -> AgentRun:
         "project", "representative", "representative__case", "representative__run"
     ).get(pk=cluster_id)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not llm.has_credentials():
         return AgentRun.objects.create(
-            cluster=cluster, status=AgentRun.Status.FAILED, error="ANTHROPIC_API_KEY not set"
+            cluster=cluster, status=AgentRun.Status.FAILED, error="LLM provider API key not set"
         )
     if not cluster.project.repo_url:
         return AgentRun.objects.create(
