@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from core import agent
@@ -109,6 +110,104 @@ def test_agent_stops_at_token_budget(tmp_path, monkeypatch):
 
     assert "token budget" in report["explanation"]
     assert len(steps) == 1
+
+
+def _openai_tool_call(name, args_dict, call_id="call_1"):
+    return SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=json.dumps(args_dict)))
+
+
+class _OpenAIMessage:
+    def __init__(self, tool_calls):
+        self.tool_calls = tool_calls
+
+    def model_dump(self, exclude_none=True):
+        return {"role": "assistant"}
+
+
+def test_agent_openai_compatible_calls_tool_then_reports_diagnosis(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent, "PROVIDER", "openai-compatible")
+
+    responses = iter(
+        [
+            SimpleNamespace(
+                choices=[SimpleNamespace(message=_OpenAIMessage([_openai_tool_call("rerun_test", {"n": 5})]))],
+                usage=SimpleNamespace(prompt_tokens=50, completion_tokens=50),
+            ),
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=_OpenAIMessage(
+                            [
+                                _openai_tool_call(
+                                    "report_diagnosis",
+                                    {
+                                        "category": "timing_flakiness",
+                                        "confidence": 0.9,
+                                        "explanation": "sleep-based wait",
+                                        "reproduced": True,
+                                        "evidence": ["3/5 reruns failed"],
+                                    },
+                                    call_id="call_2",
+                                )
+                            ]
+                        )
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=20, completion_tokens=20),
+            ),
+        ]
+    )
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return next(responses)
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr(agent, "_get_openai_client", lambda: FakeClient())
+    monkeypatch.setattr(agent.agent_tools, "rerun_test", lambda *a, **k: "3/5 passed, 2/5 failed")
+
+    report, steps = agent.run_diagnostic_agent(
+        "img", tmp_path, tmp_path, "tests.test_foo::test_bar", "trace", "msg"
+    )
+
+    assert report["category"] == "timing_flakiness"
+    assert len(steps) == 2
+    assert steps[0]["tool"] == "rerun_test"
+    assert steps[1]["tool"] == "report_diagnosis"
+
+
+def test_agent_openai_compatible_stops_at_step_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent, "PROVIDER", "openai-compatible")
+    monkeypatch.setattr(agent, "MAX_STEPS", 2)
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=_OpenAIMessage([_openai_tool_call("rerun_test", {"n": 1})]))],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=10),
+            )
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr(agent, "_get_openai_client", lambda: FakeClient())
+    monkeypatch.setattr(agent.agent_tools, "rerun_test", lambda *a, **k: "1/1 passed")
+
+    report, steps = agent.run_diagnostic_agent(
+        "img", tmp_path, tmp_path, "tests.test_foo::test_bar", "trace", "msg"
+    )
+
+    assert report["category"] == "unknown"
+    assert "budget" in report["explanation"]
+    assert len(steps) == 2
 
 
 def test_tool_exception_surfaces_as_error_string(tmp_path, monkeypatch):
