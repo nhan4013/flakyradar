@@ -6,8 +6,17 @@ from pathlib import Path
 
 from django.utils import timezone
 
-from core import agent, clustering, embeddings, git_clone, llm, retrieval, sandbox, scoring
-from core.junit import parse_junit_xml
+from core import (
+    agent,
+    clustering,
+    embeddings,
+    git_clone,
+    llm,
+    report_formats,
+    retrieval,
+    sandbox,
+    scoring,
+)
 from core.models import (
     AgentRun,
     AgentStep,
@@ -23,10 +32,15 @@ from core.models import (
 
 
 def ingest_report(
-    project_id: int, commit_sha: str, branch: str, ci_run_id: str, xml_text: str
+    project_id: int,
+    commit_sha: str,
+    branch: str,
+    ci_run_id: str,
+    xml_text: str,
+    report_format: str = "junit",
 ) -> TestRun:
     project = Project.objects.get(pk=project_id)
-    parsed = parse_junit_xml(xml_text)
+    parsed = report_formats.parse_report(report_format, xml_text)
     run = TestRun.objects.create(
         project=project, commit_sha=commit_sha, branch=branch, ci_run_id=ci_run_id
     )

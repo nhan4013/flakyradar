@@ -15,6 +15,7 @@ import django
 
 django.setup()
 
+from core import report_formats
 from core.models import Project
 from worker.tasks import process_report
 
@@ -45,11 +46,14 @@ async def upload_report(
     commit_sha: str,
     branch: str = "main",
     ci_run_id: str = "",
+    report_format: str = "junit",
     file: UploadFile = None,
     project: Project = Depends(authenticate),
 ):
     if file is None:
         raise HTTPException(status_code=400, detail="missing file")
+    if report_format not in report_formats.PARSERS:
+        raise HTTPException(status_code=400, detail=f"unsupported report_format: {report_format!r}")
     raw = await file.read()
     xml_text = raw.decode("utf-8", errors="replace")
 
@@ -60,5 +64,5 @@ async def upload_report(
         except ClientError as exc:
             raise HTTPException(status_code=502, detail=f"S3 upload failed: {exc}") from exc
 
-    task = process_report.delay(project.id, commit_sha, branch, ci_run_id, xml_text)
+    task = process_report.delay(project.id, commit_sha, branch, ci_run_id, xml_text, report_format)
     return {"status": "queued", "task_id": task.id, "s3_key": key if S3_BUCKET else None}

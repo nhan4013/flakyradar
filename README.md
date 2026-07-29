@@ -1,30 +1,46 @@
 # FlakyRadar
 
-Open-source, self-hosted flaky test detection for pytest / GitHub Actions.
-Detects pass/fail flips on the same commit, scores flakiness with a Wilson score
-interval, ranks tests by impact, and diagnoses root cause with AI (Phase 1+).
+Open-source, self-hosted flaky test detection for pytest, Jest, JUnit (Java),
+and Go test, on GitHub Actions. Detects pass/fail flips on the same commit,
+scores flakiness with a Wilson score interval, ranks tests by impact, and
+diagnoses root cause with AI (Phase 1+).
 
 ## Architecture
 
-- `apps/ingest` — FastAPI, receives JUnit XML via webhook, enqueues a Celery job
+- `apps/ingest` — FastAPI, receives a test report via webhook, enqueues a Celery job
 - `apps/worker` — Celery, parses reports + computes flakiness scores
-- `apps/dashboard` — Django + Admin, ranking, test detail, quarantine, diagnosis
-- `packages/core` — models, scoring, JUnit parser, embeddings, clustering, LLM
-  classification, shared by all three apps
+- `apps/dashboard` — Django, per-user login scoped to project membership,
+  ranking, test detail, quarantine, diagnosis
+- `packages/core` — models, scoring, report format parsers, embeddings,
+  clustering, LLM classification, shared by all three apps
 
 ## Run locally (Phase 0)
 
 ```bash
 cp .env.example .env
 docker compose up --build
+python apps/dashboard/manage.py createsuperuser  # inside the dashboard container
 ```
 
-- Dashboard: http://localhost:8000
+- Dashboard: http://localhost:8000 (log in at `/accounts/login/`)
 - Ingest API: http://localhost:8001/healthz
 
-Create a project + API key through Django Admin (`/admin/`, requires
-`manage.py createsuperuser` first), then wire up the example GitHub Action in
-[examples/github-action](examples/github-action).
+Create a project + API key through Django Admin (`/admin/`), add the dashboard
+users who should see it under the project's "members", then wire up the
+example GitHub Action in [examples/github-action](examples/github-action).
+
+## Supported report formats
+
+Pass `report_format` on the upload (defaults to `junit`):
+
+| `report_format` | Covers | How to produce it |
+|---|---|---|
+| `junit` (default) | pytest, JUnit (Java/Maven Surefire) | `pytest --junitxml=report.xml`, or Maven/Gradle's built-in surefire XML |
+| `jest-json` | Jest | `jest --json --outputFile=report.json` |
+| `go-test-json` | Go test | `go test -json ./... > report.json` |
+
+(Jest via `jest-junit` also works — same XML schema as `junit`, so no separate
+format is needed for that path.)
 
 ## Dev without Docker
 
@@ -99,9 +115,18 @@ docker compose --profile agent up
 
 Don't enable this on a host you don't control.
 
+## Multi-tenant dashboard
+
+Dashboard views require login (`/accounts/login/`) and are scoped to project
+membership — a user only sees `FailureCluster`/`TestCase` data for projects
+listed in `Project.members` (managed via Django Admin). Superusers see every
+project. `ponytail`: flat membership only, no per-project roles yet.
+
 ## Status
 
-Phase 0 through Phase 3 done: ingest, Wilson-score flakiness scoring,
-dashboard, embedding + clustering + LLM root-cause diagnosis, RAG fix
-suggestions, eval harness, sandboxed ReAct diagnostic agent. Phase 4
-(optional/long-term: distillation, more frameworks, public demo) is next.
+Phase 0 through Phase 4 (partial) done: ingest (pytest/JUnit-Java/Jest/Go
+test), Wilson-score flakiness scoring, multi-tenant dashboard, embedding +
+clustering + LLM root-cause diagnosis, RAG fix suggestions, eval harness,
+sandboxed ReAct diagnostic agent. Remaining Phase 4 items (LoRA distillation,
+public demo deploy, Show HN) need real budget/infra/accounts the user
+provides — not something to do unprompted.
