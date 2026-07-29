@@ -18,6 +18,7 @@ from core.models import (
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ("slug", "name", "api_key", "created_at")
+    filter_horizontal = ("members",)
 
 
 @admin.register(TestRun)

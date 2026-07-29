@@ -80,3 +80,7 @@ CELERY_BROKER_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 INGEST_API_URL = os.environ.get("INGEST_API_URL", "http://ingest:8000")
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "index"
+LOGOUT_REDIRECT_URL = "login"

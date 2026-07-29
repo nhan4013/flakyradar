@@ -29,6 +29,13 @@
 </head>
 <body>
 <h1><a href="{% url 'index' %}">FlakyRadar</a></h1>
+<p class="sub">
+  {% if user.is_authenticated %}
+    {{ user.username }} — <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
+  {% else %}
+    <a href="{% url 'login' %}">Log in</a>
+  {% endif %}
+</p>
 {% block content %}{% endblock %}
 </body>
 </html>
